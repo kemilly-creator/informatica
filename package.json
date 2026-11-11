@@ -1,0 +1,14 @@
+{
+  "name": "informatica-integracao",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Integração versionada entre GitHub e Google Apps Script",
+  "scripts": {
+    "clasp:push": "clasp push --rootDir apps-script",
+    "clasp:pull": "clasp pull --rootDir apps-script",
+    "clasp:open": "clasp open --rootDir apps-script"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.0.0"
+  }
+}
