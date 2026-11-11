@@ -1,0 +1,9 @@
+# Local Apps Script / OAuth credentials
+.clasp.json
+.clasprc.json
+**/.clasp.json
+**/.clasprc.json
+node_modules/
+.env
+.env.*
+.DS_Store
