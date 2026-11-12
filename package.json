@@ -1,14 +1,26 @@
 {
-  "name": "informatica-integracao",
+  "name": "universo-if-avalia",
   "private": true,
   "version": "1.0.0",
-  "description": "Integração versionada entre GitHub e Google Apps Script",
+  "type": "module",
   "scripts": {
-    "clasp:push": "clasp push --rootDir apps-script",
-    "clasp:pull": "clasp pull --rootDir apps-script",
-    "clasp:open": "clasp open --rootDir apps-script"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@google/clasp": "^3.0.0"
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   }
 }
