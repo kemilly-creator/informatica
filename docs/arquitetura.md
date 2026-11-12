@@ -28,3 +28,21 @@ O Apps Script implementa um conjunto restrito de operações em `Api.gs`. Para d
 - registre erros sem gravar tokens ou dados pessoais.
 
 Não exponha uma função genérica `eval`, `runCode` ou equivalente.
+
+
+## Universo IF Avalia — fluxo de votação
+
+O módulo \`apps-script/Voting.gs\` recebe votos no servidor via HTML Service
+(\`google.script.run\`). O site Vite estático não recebe segredos e não deve chamar o
+Apps Script com um token embutido no bundle. Um gateway público só poderá ser adotado
+após revisão de autenticação, CORS, rate limit e autorização.
+
+O voto é serializado por \`LockService.getScriptLock()\`. A unicidade é
+\`(SHA-256(codigo), id_projeto)\`; o código original nunca é persistido. A chave
+\`idRequisicao\` garante idempotência e o recibo só é retornado depois de gravar e
+executar \`SpreadsheetApp.flush()\`. O servidor recalcula a nota com pesos 30/30/25/15.
+Ranking agrega somente notas e só exibe projetos com pelo menos cinco votos.
+
+A ativação depende de \`VOTING_ENABLED=true\`, configuração privada da planilha,
+testes concorrentes e autorização expressa. A implementação deste módulo não equivale
+a implantação ou homologação.
