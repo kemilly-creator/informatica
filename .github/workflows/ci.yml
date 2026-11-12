@@ -17,6 +17,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Validate 46-project catalog
+        run: node scripts/validar-catalogo.mjs
       - name: Type check
         run: npm run typecheck
       - name: Unit tests
