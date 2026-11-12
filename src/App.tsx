@@ -21,6 +21,17 @@ export default function App() {
   const [day, setDay] = useState("Todos");
   const [theme, setTheme] = useState("Todas");
   const [selected, setSelected] = useState<string | null>(null);
+  const [evaluationProject, setEvaluationProject] = useState("");
+  const [scores, setScores] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const criteria = [
+    { label: "Relevância e impacto", weight: 30, description: "Importância do tema e contribuição para a comunidade." },
+    { label: "Criatividade e inovação", weight: 30, description: "Originalidade da proposta e soluções apresentadas." },
+    { label: "Qualidade e domínio", weight: 25, description: "Clareza, organização e domínio do trabalho." },
+    { label: "Apresentação", weight: 15, description: "Comunicação, clareza visual e interação." },
+  ] as const;
+  const weightedScore = scores.every((score) => score > 0)
+    ? scores.reduce((total, score, index) => total + score * [0.3, 0.3, 0.25, 0.15][index], 0)
+    : null;
 
   const themes = useMemo(
     () => Array.from(new Set(catalog.projetos.map((project) => project.area_tematica)))
@@ -83,7 +94,7 @@ export default function App() {
                   <div><dt>Local</dt><dd>{project.local}</dd></div>
                 </dl>
                 <p className="muted">Informações transcritas da programação. Não foram acrescentados autores ou resumos não disponibilizados.</p>
-                <button className="primary" onClick={() => setArea("avaliar")}>Avaliar este projeto</button>
+                <button className="primary" onClick={() => { setEvaluationProject(project.id); setScores([0, 0, 0, 0]); setArea("avaliar"); }}>Avaliar este projeto</button>
               </article>
             </>
           ) : (
@@ -127,8 +138,38 @@ export default function App() {
           )
         )}
         {area === "avaliar" && (
-          <><h2>Avaliar um projeto</h2><p>O formulário será habilitado após a implementação e homologação do serviço seguro de votação.</p>
-            <div className="notice"><strong>Avaliações ainda indisponíveis</strong><span>Esta versão permite consultar o catálogo, mas não recebe nem registra votos.</span></div></>
+          <>
+            <p className="eyebrow">FORMULÁRIO DE AVALIAÇÃO · SIMULAÇÃO</p>
+            <h2>Avaliar um projeto</h2>
+            <p className="muted">Atribua notas de 1 a 5 em cada critério. A prévia usa os pesos publicados no projeto.</p>
+            <div className="evaluation-panel">
+              <label className="project-picker">Projeto
+                <select value={evaluationProject} onChange={(event) => { setEvaluationProject(event.target.value); setScores([0, 0, 0, 0]); }}>
+                  <option value="">Selecione um projeto</option>
+                  {catalog.projetos.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.titulo}</option>)}
+                </select>
+              </label>
+              {criteria.map((criterion, index) => (
+                <fieldset className="criterion" key={criterion.label}>
+                  <legend>{criterion.label} <span>{criterion.weight}%</span></legend>
+                  <p>{criterion.description}</p>
+                  <div className="score-options" role="group" aria-label={criterion.label + ", nota de 1 a 5"}>
+                    {[1, 2, 3, 4, 5].map((score) => (
+                      <button type="button" key={score} aria-pressed={scores[index] === score}
+                        className={scores[index] === score ? "score-option selected" : "score-option"}
+                        onClick={() => setScores((current) => current.map((value, i) => i === index ? score : value) as [number, number, number, number])}>{score}</button>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+              <div className="score-preview" aria-live="polite">
+                <span>Nota ponderada de prévia</span>
+                <strong>{weightedScore === null ? "—" : weightedScore.toFixed(2).replace(".", ",")}</strong>
+                <small>{scores.filter((score) => score > 0).length} de 4 critérios preenchidos</small>
+              </div>
+              <div className="notice evaluation-warning"><strong>Envio ainda desativado</strong><span>Esta tela apenas calcula uma prévia no navegador. Nenhuma avaliação é transmitida ou gravada. O envio será habilitado depois da integração e homologação do Apps Script, do código de votação e do recibo de confirmação.</span></div>
+            </div>
+          </>
         )}
         {area === "ranking" && (
           <><h2>Ranking educativo</h2><p>Os resultados serão separados por modalidade e só terão colocação após a amostra mínima de cinco avaliações válidas.</p>
