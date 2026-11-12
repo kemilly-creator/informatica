@@ -72,16 +72,20 @@ function submitEvaluation(payload) {
       const codes = exigirAba_(ss, VOTE_SHEETS_.codes.name);
       const projects = exigirAba_(ss, VOTE_SHEETS_.projects.name);
       const requestHash = sha256Hex_(input.idRequisicao);
+      const codeHash = sha256Hex_(input.codigo);
 
-      // Idempotência: repetir a mesma requisição retorna o recibo original.
+      // Idempotência vinculada ao conteúdo: uma chave não pode ser reaproveitada
+      // para outro código, projeto ou conjunto de notas.
       const voteRows = votes.getDataRange().getValues();
       for (let i = 1; i < voteRows.length; i++) {
         if (String(voteRows[i][0]) === requestHash) {
+          const samePayload = String(voteRows[i][2]) === codeHash &&
+            String(voteRows[i][3]) === input.idProjeto &&
+            input.notas.every((note, index) => Number(voteRows[i][4 + index]) === note);
+          if (!samePayload) throw new Error("Chave de requisição já utilizada com outros dados.");
           return { ok: true, repetida: true, recibo: String(voteRows[i][1]), nota: Number(voteRows[i][8]) };
         }
       }
-
-      const codeHash = sha256Hex_(input.codigo);
       const codeRows = codes.getDataRange().getValues();
       const codeRow = codeRows.find((row, index) => index > 0 && String(row[0]) === codeHash);
       if (!codeRow || String(codeRow[1]).toLowerCase() !== "ativo") {
