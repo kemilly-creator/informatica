@@ -2,7 +2,12 @@
  * Entry points for the Informática integration.
  * Deploy as a Web App only after configuring API_TOKEN and SPREADSHEET_ID.
  */
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.app === "avalia") {
+    return HtmlService.createHtmlOutputFromFile("UniversoIF")
+      .setTitle("Universo IF Avalia")
+      .addMetaTag("viewport", "width=device-width, initial-scale=1");
+  }
   return json_({ ok: true, service: "informatica-apps-script", version: "1.0.0" });
 }
 

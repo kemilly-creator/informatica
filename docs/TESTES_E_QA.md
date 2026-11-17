@@ -21,4 +21,4 @@ Separar modalidades; calcular média ponderada de avaliações válidas; mínimo
 Verificar larguras 320, 375, 768 e 1280 px; teclado, foco visível, contraste, mensagens de erro, alvos de toque e leitor de tela. Registrar o que foi efetivamente testado.
 
 ## Homologação manual
-No endereço real do Pages, em janela anônima e celular: consultar ranking, enviar avaliação válida, receber recibo e conferir linha na planilha privada. Repetir o par código/projeto e confirmar bloqueio. Não gravar voto real de teste sem autorização.
+Na URL de homologação do Apps Script (`?app=avalia`), em uma sessão de navegador compatível com as permissões da implantação e em celular: consultar ranking, enviar avaliação válida, receber recibo e conferir linha na planilha privada. Repetir o par código/projeto e confirmar bloqueio. Não gravar voto real de teste sem autorização.

@@ -7,3 +7,6 @@ node_modules/
 .env
 .env.*
 .DS_Store
+
+# Generated Apps Script UI
+apps-script/UniversoIF.html

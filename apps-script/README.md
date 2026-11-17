@@ -35,7 +35,7 @@ O módulo \`Voting.gs\` implementa a camada de domínio da votação. A interfac
 
 ### Abas privadas esperadas
 
-Execute manualmente \`configurarAbasVotacao()\` no editor do Apps Script. A função cria
+Execute manualmente \`configurarAbasVotacao_()\` no editor do Apps Script. A função cria
 as abas ausentes e cabeçalhos, sem limpar conteúdo preexistente:
 
 - \`Projetos\`: \`id_projeto | titulo | modalidade\`
@@ -44,7 +44,7 @@ as abas ausentes e cabeçalhos, sem limpar conteúdo preexistente:
 - \`Configuracao\`: reservada para parâmetros operacionais.
 
 Cadastre os 46 projetos na aba \`Projetos\`. Gere hashes dos códigos com
-\`gerarHashCodigoVotacao(codigo)\` e grave somente o hash na aba \`Codigos\`.
+\`gerarHashCodigoVotacao_(codigo)\` e grave somente o hash na aba \`Codigos\`.
 Nunca guarde os códigos em texto puro. Proteja as quatro abas e limite o acesso aos
 administradores responsáveis.
 
@@ -61,11 +61,20 @@ código no mesmo projeto e devolve recibo. Repetição da mesma chave de requisi
 o recibo original. Um código pode avaliar projetos diferentes.
 
 O ranking devolve apenas agregados e omite projetos com menos de cinco avaliações.
-A interface React estática ainda não está conectada a este módulo; use HTML Service ou
-um gateway autenticado revisado antes de habilitar envio pelo site.
+Na raiz do repositório, execute `npm install` e `npm run build:apps-script` para gerar
+`apps-script/UniversoIF.html` antes de sincronizar os arquivos com o projeto Apps Script.
+A interface de votação fica na URL da implantação com `?app=avalia`. O endereço sem
+esse parâmetro continua servindo o endpoint da integração anterior. A versão estática
+mantém o catálogo e a prévia da nota. Envio e ranking usam `google.script.run`
+na página do Apps Script.
+
+Na planilha com a coluna `habilitado`, o código deve estar marcado como verdadeiro.
+Nesse layout, a avaliação é gravada com estado `VALIDA`, e o recibo é derivado da
+requisição gravada. O envio exige também `STATUS_VOTACAO=ABERTA` na aba
+`Configuracao`. Use uma planilha e códigos próprios para homologação.
 
 ### Testes
 
-Execute \`executarTestesDominioVotacao()\` no editor do Apps Script. Isso testa cálculo,
+Execute \`executarTestesDominioVotacao_()\` no editor do Apps Script. Isso testa cálculo,
 validação das notas e normalização sem tocar na planilha. Testes de concorrência,
 integração com Sheets, recibo e leitura de retorno continuam pendentes de homologação.

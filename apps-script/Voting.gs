@@ -25,13 +25,15 @@ const VOTE_EXISTING_HEADERS_ = {
     "nota_3", "nota_4", "nota_ponderada", "timestamp", "estado"]
 };
 
+class VotingInputError_ extends Error {}
+
 const VOTE_WEIGHTS_ = [0.30, 0.30, 0.25, 0.15];
 
 /**
  * Preparação manual inicial. Cria abas e cabeçalhos sem apagar dados existentes.
  * Execute no editor do Apps Script. Não habilita a votação.
  */
-function configurarAbasVotacao() {
+function configurarAbasVotacao_() {
   const ss = openConfiguredSpreadsheet_();
   const keys = Object.keys(VOTE_SHEETS_);
   keys.forEach(key => {
@@ -53,7 +55,7 @@ function configurarAbasVotacao() {
  * Gera o hash SHA-256 de um código. Use no editor para preparar lotes de códigos;
  * nunca armazene códigos em texto puro na planilha.
  */
-function gerarHashCodigoVotacao(codigo) {
+function gerarHashCodigoVotacao_(codigo) {
   const normalized = normalizarCodigo_(codigo);
   if (normalized.length < 8 || normalized.length > 80) {
     throw new Error("O código deve ter entre 8 e 80 caracteres.");
@@ -68,7 +70,7 @@ function gerarHashCodigoVotacao(codigo) {
 function submitEvaluation(payload) {
   try {
     if (PropertiesService.getScriptProperties().getProperty("VOTING_ENABLED") !== "true") {
-      throw new Error("Votação temporariamente indisponível.");
+      throw new VotingInputError_("Votação temporariamente indisponível.");
     }
     const input = validarPayloadVoto_(payload);
     const lock = LockService.getScriptLock();
@@ -85,7 +87,7 @@ function submitEvaluation(payload) {
       const existingCodes = usaLayoutExistente_(codes, "codes");
       usaLayoutExistente_(projects, "projects");
       if ((status || existingVotes) && (!status || String(status[1]).trim().toUpperCase() !== "ABERTA")) {
-        throw new Error("Votação temporariamente indisponível.");
+        throw new VotingInputError_("Votação temporariamente indisponível.");
       }
       const requestHash = sha256Hex_(input.idRequisicao);
       const codeHash = sha256Hex_(input.codigo);
@@ -97,8 +99,8 @@ function submitEvaluation(payload) {
       if (previous) {
         const samePayload = previous.codeHash === codeHash && previous.projectId === input.idProjeto &&
           input.notas.every((note, index) => previous.notes[index] === note);
-        if (!samePayload) throw new Error("Chave de requisição já utilizada com outros dados.");
-        if (!previous.valid) throw new Error("Avaliação indisponível para esta requisição.");
+        if (!samePayload) throw new VotingInputError_("Chave de requisição já utilizada com outros dados.");
+        if (!previous.valid) throw new VotingInputError_("Avaliação indisponível para esta requisição.");
         return { ok: true, repetida: true, recibo: previous.receipt, nota: previous.score };
       }
 
@@ -107,17 +109,17 @@ function submitEvaluation(payload) {
       const enabled = codeRow && (existingCodes
         ? codeRow[1] === true || String(codeRow[1]).trim().toUpperCase() === "TRUE"
         : String(codeRow[1]).toLowerCase() === "ativo");
-      if (!enabled) throw new Error("Código inválido ou inativo.");
+      if (!enabled) throw new VotingInputError_("Código inválido ou inativo.");
       if (!existingCodes && codeRow[2] && !(new Date(codeRow[2]).getTime() >= Date.now())) {
-        throw new Error("Código expirado.");
+        throw new VotingInputError_("Código expirado.");
       }
 
       const projectRows = projects.getDataRange().getValues();
       const project = projectRows.find((row, index) => index > 0 && String(row[0]) === input.idProjeto);
-      if (!project) throw new Error("Projeto não encontrado no cadastro.");
+      if (!project) throw new VotingInputError_("Projeto não encontrado no cadastro.");
 
       if (voteRows.some(vote => vote.valid && vote.codeHash === codeHash && vote.projectId === input.idProjeto)) {
-        throw new Error("Este código já avaliou este projeto.");
+        throw new VotingInputError_("Este código já avaliou este projeto.");
       }
 
       const score = calcularNotaPonderada_(input.notas);
@@ -135,7 +137,7 @@ function submitEvaluation(payload) {
     }
   } catch (error) {
     // Não registrar código, hash, payload ou conteúdo de planilha em logs.
-    return { ok: false, erro: String(error && error.message ? error.message : "Falha ao registrar avaliação.") };
+    return { ok: false, erro: error instanceof VotingInputError_ ? error.message : "Falha ao registrar avaliação." };
   }
 }
 
@@ -195,16 +197,16 @@ function lerAvaliacoes_(sheet, existing) {
 }
 
 function validarPayloadVoto_(payload) {
-  if (!payload || typeof payload !== "object") throw new Error("Dados da avaliação inválidos.");
+  if (!payload || typeof payload !== "object") throw new VotingInputError_("Dados da avaliação inválidos.");
   const codigo = normalizarCodigo_(payload.codigo);
   const idProjeto = String(payload.idProjeto || "").trim();
   const idRequisicao = String(payload.idRequisicao || "").trim();
-  if (codigo.length < 8 || codigo.length > 80) throw new Error("Código inválido.");
-  if (!/^(NAC|EXT)-\d{3}$/.test(idProjeto)) throw new Error("Identificador do projeto inválido.");
-  if (!/^[A-Za-z0-9_-]{16,100}$/.test(idRequisicao)) throw new Error("Identificador da requisição inválido.");
+  if (codigo.length < 8 || codigo.length > 80) throw new VotingInputError_("Código inválido.");
+  if (!/^(NAC|EXT)-\d{3}$/.test(idProjeto)) throw new VotingInputError_("Identificador do projeto inválido.");
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(idRequisicao)) throw new VotingInputError_("Identificador da requisição inválido.");
   if (!Array.isArray(payload.notas) || payload.notas.length !== 4 ||
       payload.notas.some(n => !Number.isInteger(n) || n < 1 || n > 5)) {
-    throw new Error("Informe quatro notas inteiras entre 1 e 5.");
+    throw new VotingInputError_("Informe quatro notas inteiras entre 1 e 5.");
   }
   return { codigo: codigo, idProjeto: idProjeto, idRequisicao: idRequisicao, notas: payload.notas };
 }
@@ -231,7 +233,7 @@ function exigirAba_(ss, name) {
 }
 
 /** Testes de domínio sem acessar ou modificar a planilha. */
-function executarTestesDominioVotacao() {
+function executarTestesDominioVotacao_() {
   const sample = calcularNotaPonderada_([4, 5, 4, 3]);
   if (sample !== 4.15) throw new Error("Falha no cálculo ponderado: " + sample);
   let rejected = false;

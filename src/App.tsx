@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { calculateWeightedScore, type Scores } from "./domain";
+import { loadRanking, submitEvaluation, votingAvailable, type EvaluationPayload, type RankingEntry } from "./voting";
 import catalog from "./data/universo_if_catalogo_46_projetos_v1.0.json";
 
 type Area = "projetos" | "avaliar" | "ranking";
@@ -8,6 +10,9 @@ const tabs: { id: Area; label: string }[] = [
   { id: "avaliar", label: "Avaliar" },
   { id: "ranking", label: "Ranking" },
 ];
+const rankingModalities = ["Mostra Nacional", "Mostra de Extensão"] as const;
+const formatScore = (score: number) => score.toFixed(2).replace(".", ",");
+
 const normalize = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
 const dateLabel = (value: string) =>
@@ -22,16 +27,78 @@ export default function App() {
   const [theme, setTheme] = useState("Todas");
   const [selected, setSelected] = useState<string | null>(null);
   const [evaluationProject, setEvaluationProject] = useState("");
-  const [scores, setScores] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const [scores, setScores] = useState<Scores>([0, 0, 0, 0]);
+  const [code, setCode] = useState("");
+  const [sending, setSending] = useState(false);
+  const [receipt, setReceipt] = useState<{ recibo: string; nota: number } | null>(null);
+  const [evaluationError, setEvaluationError] = useState("");
+  const attempt = useRef<EvaluationPayload | null>(null);
+  const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
+  const [rankingError, setRankingError] = useState(false);
+  const [rankingReload, setRankingReload] = useState(0);
   const criteria = [
     { label: "Relevância e impacto", weight: 30, description: "Importância do tema e contribuição para a comunidade." },
     { label: "Criatividade e inovação", weight: 30, description: "Originalidade da proposta e soluções apresentadas." },
     { label: "Qualidade e domínio", weight: 25, description: "Clareza, organização e domínio do trabalho." },
     { label: "Apresentação", weight: 15, description: "Comunicação, clareza visual e interação." },
   ] as const;
-  const weightedScore = scores.every((score) => score > 0)
-    ? scores.reduce((total, score, index) => total + score * [0.3, 0.3, 0.25, 0.15][index], 0)
-    : null;
+  const weightedScore = scores.every((score) => score > 0) ? calculateWeightedScore(scores) : null;
+  const normalizedCode = code.trim().toUpperCase().replace(/\s+/g, "");
+
+  useEffect(() => {
+    if (area !== "ranking" || !votingAvailable) return;
+    let active = true;
+    setRanking(null);
+    setRankingError(false);
+    loadRanking().then(
+      (entries) => { if (active) setRanking(entries); },
+      () => { if (active) setRankingError(true); },
+    );
+    return () => { active = false; };
+  }, [area, rankingReload]);
+
+  function clearFeedback() {
+    setReceipt(null);
+    setEvaluationError("");
+  }
+
+  function selectProject(id: string) {
+    setEvaluationProject(id);
+    setScores([0, 0, 0, 0]);
+    clearFeedback();
+  }
+
+  async function handleEvaluation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!votingAvailable || sending || receipt || !evaluationProject || weightedScore === null ||
+        normalizedCode.length < 8 || normalizedCode.length > 80) return;
+    const previous = attempt.current;
+    if (!previous || previous.codigo !== normalizedCode || previous.idProjeto !== evaluationProject ||
+        scores.some((score, index) => score !== previous.notas[index])) {
+      attempt.current = {
+        codigo: normalizedCode,
+        idProjeto: evaluationProject,
+        notas: scores,
+        idRequisicao: crypto.randomUUID(),
+      };
+    }
+    setSending(true);
+    setEvaluationError("");
+    try {
+      const result = await submitEvaluation(attempt.current!);
+      if (result.ok) {
+        setReceipt(result);
+        attempt.current = null;
+        setCode("");
+      } else {
+        setEvaluationError(result.erro);
+      }
+    } catch {
+      setEvaluationError("Não foi possível confirmar o envio. Tente novamente para recuperar o recibo.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   const themes = useMemo(
     () => Array.from(new Set(catalog.projetos.map((project) => project.area_tematica)))
@@ -94,7 +161,7 @@ export default function App() {
                   <div><dt>Local</dt><dd>{project.local}</dd></div>
                 </dl>
                 <p className="muted">Informações transcritas da programação. Não foram acrescentados autores ou resumos não disponibilizados.</p>
-                <button className="primary" onClick={() => { setEvaluationProject(project.id); setScores([0, 0, 0, 0]); setArea("avaliar"); }}>Avaliar este projeto</button>
+                <button className="primary" onClick={() => { if (!sending) selectProject(project.id); setArea("avaliar"); }}>Avaliar este projeto</button>
               </article>
             </>
           ) : (
@@ -139,41 +206,79 @@ export default function App() {
         )}
         {area === "avaliar" && (
           <>
-            <p className="eyebrow">FORMULÁRIO DE AVALIAÇÃO · SIMULAÇÃO</p>
+
             <h2>Avaliar um projeto</h2>
             <p className="muted">Atribua notas de 1 a 5 em cada critério. A prévia usa os pesos publicados no projeto.</p>
-            <div className="evaluation-panel">
+            <form className="evaluation-panel" onSubmit={handleEvaluation}>
               <label className="project-picker">Projeto
-                <select value={evaluationProject} onChange={(event) => { setEvaluationProject(event.target.value); setScores([0, 0, 0, 0]); }}>
+                <select value={evaluationProject} disabled={sending} onChange={(event) => selectProject(event.target.value)}>
                   <option value="">Selecione um projeto</option>
                   {catalog.projetos.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.titulo}</option>)}
                 </select>
               </label>
               {criteria.map((criterion, index) => (
-                <fieldset className="criterion" key={criterion.label}>
+                <fieldset className="criterion" key={criterion.label} disabled={sending}>
                   <legend>{criterion.label} <span>{criterion.weight}%</span></legend>
                   <p>{criterion.description}</p>
                   <div className="score-options" role="group" aria-label={criterion.label + ", nota de 1 a 5"}>
                     {[1, 2, 3, 4, 5].map((score) => (
                       <button type="button" key={score} aria-pressed={scores[index] === score}
                         className={scores[index] === score ? "score-option selected" : "score-option"}
-                        onClick={() => setScores((current) => current.map((value, i) => i === index ? score : value) as [number, number, number, number])}>{score}</button>
+                        onClick={() => { setScores((current) => current.map((value, i) => i === index ? score : value) as Scores); clearFeedback(); }}>{score}</button>
                     ))}
                   </div>
                 </fieldset>
               ))}
               <div className="score-preview" aria-live="polite">
                 <span>Nota ponderada de prévia</span>
-                <strong>{weightedScore === null ? "—" : weightedScore.toFixed(2).replace(".", ",")}</strong>
+                <strong>{weightedScore === null ? "—" : formatScore(weightedScore)}</strong>
                 <small>{scores.filter((score) => score > 0).length} de 4 critérios preenchidos</small>
               </div>
-              <div className="notice evaluation-warning"><strong>Envio ainda desativado</strong><span>Esta tela apenas calcula uma prévia no navegador. Nenhuma avaliação é transmitida ou gravada. O envio será habilitado depois da integração e homologação do Apps Script, do código de votação e do recibo de confirmação.</span></div>
-            </div>
+              {votingAvailable ? (
+                <div className="evaluation-submit">
+                  <label className="project-picker">Código de votação
+                    <input type="password" autoComplete="off" value={code} disabled={sending}
+                      onChange={(event) => { setCode(event.target.value); clearFeedback(); }} />
+                  </label>
+                  <button className="primary" type="submit" disabled={sending || !!receipt || !evaluationProject ||
+                    weightedScore === null || normalizedCode.length < 8 || normalizedCode.length > 80}>
+                    {sending ? "Enviando…" : "Enviar avaliação"}
+                  </button>
+                  {evaluationError && <p role="alert">{evaluationError}</p>}
+                  {receipt && <div className="notice evaluation-warning" role="status">
+                    <strong>Avaliação registrada</strong>
+                    <span>Recibo {receipt.recibo}</span>
+                    <span>Nota confirmada {formatScore(receipt.nota)}</span>
+                  </div>}
+                </div>
+              ) : <p className="notice">Abra a versão do Apps Script para enviar uma avaliação.</p>}
+            </form>
           </>
         )}
         {area === "ranking" && (
-          <><h2>Ranking educativo</h2><p>Os resultados serão separados por modalidade e só terão colocação após a amostra mínima de cinco avaliações válidas.</p>
-            <div className="notice"><strong>Sem resultados publicados</strong><span>Não há votos reais registrados nesta versão.</span></div></>
+          <>
+            <h2>Ranking educativo</h2>
+            <p>Cada projeto entra no ranking da sua modalidade após cinco avaliações válidas.</p>
+            {!votingAvailable && <p className="notice">Abra a versão do Apps Script para consultar o ranking.</p>}
+            {votingAvailable && !ranking && !rankingError && <p role="status">Carregando ranking…</p>}
+            {rankingError && <div className="notice">
+              <p role="alert">Não foi possível carregar o ranking.</p>
+              <button className="primary" onClick={() => setRankingReload((current) => current + 1)}>Tentar novamente</button>
+            </div>}
+            {ranking && rankingModalities.map((item) => {
+              const entries = ranking.filter((entry) => entry.modalidade === item);
+              return <section key={item} className="ranking-group">
+                <h3>{item}</h3>
+                {entries.length === 0 ? <p>Nenhum projeto atingiu o mínimo de cinco avaliações.</p> :
+                  <ol>
+                    {entries.map((entry) => <li key={entry.idProjeto}>
+                      <strong>{entry.titulo}</strong>
+                      <span>Média {formatScore(entry.media)} · {entry.quantidade} avaliações</span>
+                    </li>)}
+                  </ol>}
+              </section>;
+            })}
+          </>
         )}
       </section>
       <footer>Universo IF Avalia · Atividade acadêmica independente. Não representa julgamento oficial do evento.</footer>
