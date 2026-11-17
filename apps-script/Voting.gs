@@ -17,6 +17,14 @@ const VOTE_SHEETS_ = {
   config: { name: "Configuracao", headers: ["chave", "valor"] }
 };
 
+// Layout já utilizado pela planilha privada do Universo IF Avalia.
+const VOTE_EXISTING_HEADERS_ = {
+  projects: ["id", "titulo", "modalidade", "area_tematica", "data", "inicio", "fim", "formato", "local"],
+  codes: ["hash_codigo", "habilitado", "criado_em"],
+  votes: ["id_requisicao", "hash_codigo", "id_projeto", "nota_1", "nota_2",
+    "nota_3", "nota_4", "nota_ponderada", "timestamp", "estado"]
+};
+
 const VOTE_WEIGHTS_ = [0.30, 0.30, 0.25, 0.15];
 
 /**
@@ -25,18 +33,17 @@ const VOTE_WEIGHTS_ = [0.30, 0.30, 0.25, 0.15];
  */
 function configurarAbasVotacao() {
   const ss = openConfiguredSpreadsheet_();
-  Object.keys(VOTE_SHEETS_).forEach(key => {
+  const keys = Object.keys(VOTE_SHEETS_);
+  keys.forEach(key => {
+    const sheet = ss.getSheetByName(VOTE_SHEETS_[key].name);
+    if (sheet && sheet.getLastRow() > 0) usaLayoutExistente_(sheet, key);
+  });
+  keys.forEach(key => {
     const spec = VOTE_SHEETS_[key];
-    let sheet = ss.getSheetByName(spec.name);
-    if (!sheet) sheet = ss.insertSheet(spec.name);
+    const sheet = ss.getSheetByName(spec.name) || ss.insertSheet(spec.name);
     if (sheet.getLastRow() === 0) {
       sheet.getRange(1, 1, 1, spec.headers.length).setValues([spec.headers]);
       sheet.setFrozenRows(1);
-    } else {
-      const actual = sheet.getRange(1, 1, 1, spec.headers.length).getDisplayValues()[0];
-      if (spec.headers.some((header, i) => actual[i] !== header)) {
-        throw new Error("Cabeçalho incompatível na aba " + spec.name + ". Nenhum dado foi alterado.");
-      }
     }
   });
   return { ok: true, message: "Abas verificadas/criadas. A votação continua desligada." };
@@ -71,27 +78,37 @@ function submitEvaluation(payload) {
       const votes = exigirAba_(ss, VOTE_SHEETS_.votes.name);
       const codes = exigirAba_(ss, VOTE_SHEETS_.codes.name);
       const projects = exigirAba_(ss, VOTE_SHEETS_.projects.name);
+      const config = ss.getSheetByName(VOTE_SHEETS_.config.name);
+      const status = config && config.getDataRange().getValues()
+        .find(row => row[0] === "STATUS_VOTACAO");
+      const existingVotes = usaLayoutExistente_(votes, "votes");
+      const existingCodes = usaLayoutExistente_(codes, "codes");
+      usaLayoutExistente_(projects, "projects");
+      if ((status || existingVotes) && (!status || String(status[1]).trim().toUpperCase() !== "ABERTA")) {
+        throw new Error("Votação temporariamente indisponível.");
+      }
       const requestHash = sha256Hex_(input.idRequisicao);
       const codeHash = sha256Hex_(input.codigo);
 
       // Idempotência vinculada ao conteúdo: uma chave não pode ser reaproveitada
       // para outro código, projeto ou conjunto de notas.
-      const voteRows = votes.getDataRange().getValues();
-      for (let i = 1; i < voteRows.length; i++) {
-        if (String(voteRows[i][0]) === requestHash) {
-          const samePayload = String(voteRows[i][2]) === codeHash &&
-            String(voteRows[i][3]) === input.idProjeto &&
-            input.notas.every((note, index) => Number(voteRows[i][4 + index]) === note);
-          if (!samePayload) throw new Error("Chave de requisição já utilizada com outros dados.");
-          return { ok: true, repetida: true, recibo: String(voteRows[i][1]), nota: Number(voteRows[i][8]) };
-        }
+      const voteRows = lerAvaliacoes_(votes, existingVotes);
+      const previous = voteRows.find(vote => vote.requestHash === requestHash);
+      if (previous) {
+        const samePayload = previous.codeHash === codeHash && previous.projectId === input.idProjeto &&
+          input.notas.every((note, index) => previous.notes[index] === note);
+        if (!samePayload) throw new Error("Chave de requisição já utilizada com outros dados.");
+        if (!previous.valid) throw new Error("Avaliação indisponível para esta requisição.");
+        return { ok: true, repetida: true, recibo: previous.receipt, nota: previous.score };
       }
+
       const codeRows = codes.getDataRange().getValues();
       const codeRow = codeRows.find((row, index) => index > 0 && String(row[0]) === codeHash);
-      if (!codeRow || String(codeRow[1]).toLowerCase() !== "ativo") {
-        throw new Error("Código inválido ou inativo.");
-      }
-      if (codeRow[2] && new Date(codeRow[2]).getTime() < Date.now()) {
+      const enabled = codeRow && (existingCodes
+        ? codeRow[1] === true || String(codeRow[1]).trim().toUpperCase() === "TRUE"
+        : String(codeRow[1]).toLowerCase() === "ativo");
+      if (!enabled) throw new Error("Código inválido ou inativo.");
+      if (!existingCodes && codeRow[2] && !(new Date(codeRow[2]).getTime() >= Date.now())) {
         throw new Error("Código expirado.");
       }
 
@@ -99,21 +116,18 @@ function submitEvaluation(payload) {
       const project = projectRows.find((row, index) => index > 0 && String(row[0]) === input.idProjeto);
       if (!project) throw new Error("Projeto não encontrado no cadastro.");
 
-      // Regra do modelo B: um código pode votar em vários projetos, uma vez por projeto.
-      for (let i = 1; i < voteRows.length; i++) {
-        if (String(voteRows[i][2]) === codeHash && String(voteRows[i][3]) === input.idProjeto) {
-          throw new Error("Este código já avaliou este projeto.");
-        }
+      if (voteRows.some(vote => vote.valid && vote.codeHash === codeHash && vote.projectId === input.idProjeto)) {
+        throw new Error("Este código já avaliou este projeto.");
       }
 
       const score = calcularNotaPonderada_(input.notas);
-      const receipt = "UIF-" + Utilities.getUuid().replace(/-/g, "").slice(0, 16).toUpperCase();
+      const receipt = existingVotes
+        ? reciboPorRequisicao_(requestHash)
+        : "UIF-" + Utilities.getUuid().replace(/-/g, "").slice(0, 16).toUpperCase();
       const now = new Date();
-      votes.appendRow([
-        requestHash, receipt, codeHash, input.idProjeto,
-        input.notas[0], input.notas[1], input.notas[2], input.notas[3],
-        score, now
-      ]);
+      votes.appendRow(existingVotes
+        ? [requestHash, codeHash, input.idProjeto, ...input.notas, score, now, "VALIDA"]
+        : [requestHash, receipt, codeHash, input.idProjeto, ...input.notas, score, now]);
       SpreadsheetApp.flush();
       return { ok: true, repetida: false, recibo: receipt, idProjeto: input.idProjeto, nota: score, registradoEm: now.toISOString() };
     } finally {
@@ -128,15 +142,19 @@ function submitEvaluation(payload) {
 /** Ranking agregado; projetos só aparecem após cinco avaliações válidas. */
 function getPublicRanking() {
   const ss = openConfiguredSpreadsheet_();
-  const projects = exigirAba_(ss, VOTE_SHEETS_.projects.name).getDataRange().getValues();
-  const votes = exigirAba_(ss, VOTE_SHEETS_.votes.name).getDataRange().getValues();
-  const totals = {};
-  for (let i = 1; i < votes.length; i++) {
-    const id = String(votes[i][3]);
+  const projectSheet = exigirAba_(ss, VOTE_SHEETS_.projects.name);
+  usaLayoutExistente_(projectSheet, "projects");
+  const projects = projectSheet.getDataRange().getValues();
+  const voteSheet = exigirAba_(ss, VOTE_SHEETS_.votes.name);
+  const votes = lerAvaliacoes_(voteSheet, usaLayoutExistente_(voteSheet, "votes"));
+  const totals = Object.create(null);
+  votes.forEach(vote => {
+    if (!vote.valid || !Number.isFinite(vote.score) || vote.score < 1 || vote.score > 5) return;
+    const id = vote.projectId;
     if (!totals[id]) totals[id] = { count: 0, sum: 0 };
     totals[id].count++;
-    totals[id].sum += Number(votes[i][8]);
-  }
+    totals[id].sum += vote.score;
+  });
   return projects.slice(1).map(row => {
     const total = totals[String(row[0])] || { count: 0, sum: 0 };
     return {
@@ -147,6 +165,33 @@ function getPublicRanking() {
     };
   }).filter(item => item.elegivel)
     .sort((a, b) => b.media - a.media || b.quantidade - a.quantidade || a.idProjeto.localeCompare(b.idProjeto));
+}
+
+function usaLayoutExistente_(sheet, key) {
+  const spec = VOTE_SHEETS_[key];
+  const existing = VOTE_EXISTING_HEADERS_[key];
+  const width = Math.max(spec.headers.length, existing ? existing.length : 0);
+  const actual = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+  if (existing && existing.every((header, i) => actual[i] === header)) return true;
+  if (spec.headers.every((header, i) => actual[i] === header)) return false;
+  throw new Error("Cabeçalho incompatível na aba " + spec.name + ".");
+}
+
+function reciboPorRequisicao_(requestHash) {
+  return "UIF-" + sha256Hex_("recibo:" + requestHash).slice(0, 16).toUpperCase();
+}
+
+function lerAvaliacoes_(sheet, existing) {
+  const offset = existing ? 0 : 1;
+  return sheet.getDataRange().getValues().slice(1).filter(row => row[0]).map(row => ({
+    requestHash: String(row[0]),
+    receipt: existing ? reciboPorRequisicao_(String(row[0])) : String(row[1]),
+    codeHash: String(row[1 + offset]),
+    projectId: String(row[2 + offset]),
+    notes: row.slice(3 + offset, 7 + offset).map(Number),
+    score: Number(row[7 + offset]),
+    valid: !existing || String(row[9]).trim().toUpperCase() === "VALIDA"
+  }));
 }
 
 function validarPayloadVoto_(payload) {
